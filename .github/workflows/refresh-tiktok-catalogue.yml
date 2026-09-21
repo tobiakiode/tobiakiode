@@ -1,0 +1,78 @@
+name: Refresh TikTok catalogue feed
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-tiktok-catalogue-feed
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Check out relay repository
+        uses: actions/checkout@v4
+
+      - name: Fetch source feed
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p feeds
+          curl \
+            --fail \
+            --show-error \
+            --location \
+            --retry 3 \
+            --retry-all-errors \
+            --connect-timeout 15 \
+            --max-time 120 \
+            --output /tmp/tobiakiode-fluentcart-tiktok-catalog.csv \
+            "https://tobiakiode.com/wp-content/uploads/tobiakiode-fluentcart-tiktok-catalog.csv"
+
+      - name: Validate catalogue contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          ruby -rcsv -ruri -e '
+            path = "/tmp/tobiakiode-fluentcart-tiktok-catalog.csv"
+            rows = CSV.read(path, headers: true)
+            required = %w[sku_id title description availability condition price link image_link brand]
+            missing = required - rows.headers
+            abort("missing headers: #{missing.join(",")}") unless missing.empty?
+            abort("catalogue unexpectedly empty") if rows.empty?
+            abort("catalogue row ceiling exceeded") if rows.size > 5000
+            ids = rows.map { |row| row["sku_id"].to_s.strip }
+            abort("blank sku_id") if ids.any?(&:empty?)
+            abort("duplicate sku_id") unless ids.uniq.size == ids.size
+            rows.each_with_index do |row, index|
+              %w[link image_link].each do |field|
+                uri = URI.parse(row[field].to_s)
+                abort("row #{index + 2}: #{field} must be https") unless uri.is_a?(URI::HTTPS)
+              end
+              abort("row #{index + 2}: invalid price") unless row["price"].to_s.match?(/\A\d+(?:\.\d{2}) GBP\z/)
+            end
+            puts "validated rows=#{rows.size} unique_skus=#{ids.uniq.size}"
+          '
+
+      - name: Publish only a validated change
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -m 0644 /tmp/tobiakiode-fluentcart-tiktok-catalog.csv feeds/tobiakiode-fluentcart-tiktok-catalog.csv
+          git config user.name "TobiAkiode catalogue relay"
+          git config user.email "actions@users.noreply.github.com"
+          git add feeds/tobiakiode-fluentcart-tiktok-catalog.csv
+          if git diff --cached --quiet; then
+            echo "No catalogue change to publish."
+            exit 0
+          fi
+          git commit -m "chore(catalogue): refresh FluentCart TikTok feed"
+          git push
+
