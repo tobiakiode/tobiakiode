@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 8
     steps:
       - name: Check out relay repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Fetch source feed
         shell: bash
@@ -75,4 +75,3 @@ jobs:
           fi
           git commit -m "chore(catalogue): refresh FluentCart TikTok feed"
           git push
-
