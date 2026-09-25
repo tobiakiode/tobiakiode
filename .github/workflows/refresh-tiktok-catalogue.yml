@@ -42,6 +42,8 @@ jobs:
           set -euo pipefail
           ruby -rcsv -ruri -e '
             path = "/tmp/tobiakiode-fluentcart-tiktok-catalog.csv"
+            data = File.binread(path).gsub("\r\n", "\n")
+            File.binwrite(path, data.sub(/\n*\z/, "") + "\n")
             rows = CSV.read(path, headers: true)
             required = %w[sku_id title description availability condition price link image_link brand]
             missing = required - rows.headers
